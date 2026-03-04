@@ -36,16 +36,21 @@ const app = new Elysia()
     const totalPrice = (days * parseFloat(lens.dayPrice)).toFixed(2);
     const orderId = crypto.randomUUID();
 
-    const reserveResponse = await fetch(`${INVENTORY_SERVICE_URL}/api/inventory/reserve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        orderId,
-        lensId: body.lensId,
-        branchCode: body.branchCode,
-        quantity: 1,
-      }),
-    });
+    let reserveResponse: Response;
+    try {
+      reserveResponse = await fetch(`${INVENTORY_SERVICE_URL}/api/inventory/reserve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId,
+          lensId: body.lensId,
+          branchCode: body.branchCode,
+          quantity: 1,
+        }),
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: 'Inventory service unavailable' }), { status: 502 });
+    }
 
     if (reserveResponse.status === 409) {
       const payload = await reserveResponse.json().catch(() => ({ error: 'Insufficient stock' }));
