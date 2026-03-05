@@ -30,6 +30,8 @@ Setelah semua service sehat, frontend tersedia di `http://localhost:5173`.
 
 ## Diagram arsitektur
 
+![Diagram](diagram.png)
+
 ```plantuml
 @startuml
 skinparam componentStyle rectangle
