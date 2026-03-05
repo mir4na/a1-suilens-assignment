@@ -32,41 +32,6 @@ Setelah semua service sehat, frontend tersedia di `http://localhost:5173`.
 
 ![Diagram](diagram.png)
 
-```plantuml
-@startuml
-skinparam componentStyle rectangle
-
-component "Frontend Vue" as Frontend
-component "Nginx Gateway" as Gateway
-component "Catalog Service" as Catalog
-component "Order Service" as Orders
-component "Inventory Service" as Inventory
-component "Notification Service" as Notif
-queue "RabbitMQ" as Rabbit
-database "Catalog DB" as CatalogDB
-database "Order DB" as OrderDB
-database "Inventory DB" as InventoryDB
-database "Notification DB" as NotifDB
-
-Frontend --> Gateway : HTTP
-Gateway --> Catalog : /api/catalog
-Gateway --> Orders : /api/orders
-Gateway --> Inventory : /api/inventory
-Gateway --> Notif : /api/admin
-
-Catalog --> CatalogDB : SQL
-Orders --> OrderDB : SQL
-Inventory --> InventoryDB : SQL
-Notif --> NotifDB : SQL
-
-Orders --> Inventory : reserve stock
-Orders --> Rabbit : order.placed
-Orders --> Rabbit : order.cancelled
-Inventory --> Rabbit : consume order.cancelled
-Notif --> Rabbit : consume order.placed
-@enduml
-```
-
 ## Bonus: DLQ, Gateway, Replay
 
 - DLQ exchange: `suilens.dlq` dengan queue `suilens.dlq`
