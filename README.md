@@ -15,6 +15,7 @@ Setelah semua service sehat, frontend tersedia di `http://localhost:5173`.
 - Notification Service: `http://localhost:3003`
 - Inventory Service: `http://localhost:3004`
 - RabbitMQ UI: `http://localhost:15672`
+- API Gateway: `http://localhost:8080`
 
 ## Kontrak API utama
 
@@ -29,55 +30,47 @@ Setelah semua service sehat, frontend tersedia di `http://localhost:5173`.
 
 ## Diagram arsitektur
 
-```mermaid
-flowchart LR
-  Frontend[Frontend Vue]
-  Catalog[Catalog Service]
-  Orders[Order Service]
-  Inventory[Inventory Service]
-  Notif[Notification Service]
-  Rabbit[(RabbitMQ)]
-  CatalogDB[(Catalog DB)]
-  OrderDB[(Order DB)]
-  InventoryDB[(Inventory DB)]
-  NotifDB[(Notification DB)]
+```plantuml
+@startuml
+skinparam componentStyle rectangle
 
-  Frontend -->|HTTP| Catalog
-  Frontend -->|HTTP| Orders
-  Frontend -->|HTTP| Inventory
+component "Frontend Vue" as Frontend
+component "Nginx Gateway" as Gateway
+component "Catalog Service" as Catalog
+component "Order Service" as Orders
+component "Inventory Service" as Inventory
+component "Notification Service" as Notif
+queue "RabbitMQ" as Rabbit
+database "Catalog DB" as CatalogDB
+database "Order DB" as OrderDB
+database "Inventory DB" as InventoryDB
+database "Notification DB" as NotifDB
 
-  Catalog -->|SQL| CatalogDB
-  Orders -->|SQL| OrderDB
-  Inventory -->|SQL| InventoryDB
-  Notif -->|SQL| NotifDB
+Frontend --> Gateway : HTTP
+Gateway --> Catalog : /api/catalog
+Gateway --> Orders : /api/orders
+Gateway --> Inventory : /api/inventory
+Gateway --> Notif : /api/admin
 
-  Orders -->|reserve stock| Inventory
-  Orders -->|order.placed| Rabbit
-  Orders -->|order.cancelled| Rabbit
-  Inventory -->|consume order.cancelled| Rabbit
-  Notif -->|consume order.placed| Rabbit
+Catalog --> CatalogDB : SQL
+Orders --> OrderDB : SQL
+Inventory --> InventoryDB : SQL
+Notif --> NotifDB : SQL
+
+Orders --> Inventory : reserve stock
+Orders --> Rabbit : order.placed
+Orders --> Rabbit : order.cancelled
+Inventory --> Rabbit : consume order.cancelled
+Notif --> Rabbit : consume order.placed
+@enduml
 ```
 
+## Bonus: DLQ, Gateway, Replay
+
+- DLQ exchange: `suilens.dlq` dengan queue `suilens.dlq`
+- Admin DLQ: `GET http://localhost:8080/api/admin/dlq?limit=10`
+- Replay notifikasi: `POST http://localhost:8080/api/admin/notifications/replay?from=2025-01-01T00:00:00Z`
+- Frontend memakai gateway sebagai base URL (`VITE_API_BASE=http://localhost:8080`)
+
 ## Tulisan perbandingan
-
-### (a) Skenario mikroservis lebih tangguh
-Misalkan ada kampanye besar yang memicu lonjakan event notifikasi dan menyebabkan Notification Service overload, bahkan crash berulang. Pada arsitektur mikroservis, jalur utama pemesanan tetap berjalan karena Order Service hanya bergantung pada Catalog Service dan Inventory Service untuk proses inti. Event `order.placed` disimpan di RabbitMQ dan akan diproses ketika Notification Service kembali sehat, sehingga kegagalan tidak merembet ke layanan inti. Sistem tetap menerima pesanan dan mengalokasikan stok, sementara notifikasi bersifat eventual. Ini menunjukkan isolasi kegagalan yang lebih baik dibanding monolit, di mana modul notifikasi yang berat bisa menurunkan performa transaksi inti atau bahkan membuat aplikasi tidak responsif.
-
-Contoh lain adalah lonjakan pada pencarian katalog. Jika Catalog Service memerlukan scaling terpisah, ia bisa di-scale tanpa menambah beban pada Order Service atau Inventory Service. Kapasitas bisa dinaikkan secara terfokus. Dalam monolit, scaling harus dilakukan untuk seluruh aplikasi, yang membuat biaya lebih tinggi dan lebih sulit mengendalikan latensi di bagian yang kritis.
-
-### (b) Skenario monolit lebih sederhana
-Pada skenario sederhana seperti validasi lintas data sebelum transaksi, monolit lebih sederhana karena semua data berada pada satu basis data dan bisa dikelola dalam satu transaksi ACID. Misalnya, saat menghitung harga total, memvalidasi diskon, dan memeriksa stok, monolit cukup melakukan satu transaksi yang mencakup semua tabel terkait. Jika ada kegagalan, transaksi dapat di-roll back secara atomik.
-
-Di mikroservis, tindakan ini harus dipecah ke beberapa layanan. Order Service harus memanggil Catalog Service untuk harga dan Inventory Service untuk stok, lalu menyusun hasilnya. Jika salah satu layanan lambat atau tidak tersedia, alur transaksi menjadi kompleks dan membutuhkan retry, timeout, serta mekanisme kompensasi. Untuk tim kecil dan domain sederhana, monolit jauh lebih cepat dibangun dan lebih mudah dipahami, sehingga mengurangi biaya koordinasi dan debugging.
-
-### (c) Inventory Service down saat pemesanan
-Jika Inventory Service down, Order Service tidak bisa melakukan reservasi stok secara sinkron, sehingga pemesanan harus ditolak dengan error yang jelas. Ini menjaga konsistensi karena Order Service tidak membuat pesanan tanpa stok yang dikunci. Mitigasi utama adalah circuit breaker untuk mencegah retry berlebihan dan memberikan feedback cepat ke pengguna, ditambah timeout yang ketat pada pemanggilan inventory.
-
-Mitigasi tambahan yang mungkin adalah mode antrian pesanan: Order Service menerima pesanan dalam status pending dan menaruhnya ke queue untuk diproses ulang ketika Inventory Service kembali sehat. Namun, pendekatan ini memperkenalkan trade-off pengalaman pengguna karena pesanan tidak langsung terkonfirmasi. Untuk kasus yang membutuhkan konfirmasi instan dan konsistensi stok yang kuat, penolakan sementara adalah pilihan yang lebih aman. Untuk kasus yang lebih fleksibel, pendekatan antrian dapat meningkatkan ketersediaan.
-
-### (d) Trade-off dan alternatif
-Trade-off utama adalah konsistensi vs ketersediaan. Pada desain ini, reservasi stok dilakukan secara sinkron demi konsistensi, sementara pembatalan dilakukan secara asinkron agar sistem tetap responsif dan tidak bergantung pada jalur balik secara real time. Ini membuat alur pembatalan sedikit lebih kompleks karena membutuhkan idempotensi di Inventory Service, tetapi memberi fleksibilitas ketika terjadi gangguan sementara.
-
-Alternatifnya adalah menyimpan stok di Order Service untuk mengurangi latensi jaringan. Pendekatan ini menyederhanakan transaksi, tetapi mengorbankan pemisahan tanggung jawab dan meningkatkan coupling. Alternatif lain adalah shared database untuk semua layanan. Ini memudahkan konsistensi data namun menabrak prinsip isolasi mikroservis dan membuat perubahan skema lebih berisiko.
-
-Pendekatan lain yang lebih advance adalah menggunakan event sourcing atau log-based system seperti Kafka untuk mengelola stok dengan replay dan kompensasi yang lebih kuat. Ini meningkatkan auditability dan robustness, tetapi biaya operasional serta kompleksitas implementasinya jauh lebih tinggi dibanding kebutuhan sistem ini.
+Lihat `d3.md`.

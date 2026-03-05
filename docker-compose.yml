@@ -133,14 +133,28 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      catalog-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+      inventory-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+
   frontend:
     build: ./frontend/suilens-frontend
     ports:
       - "5173:5173"
     environment:
-      VITE_CATALOG_API: http://localhost:3001
-      VITE_ORDER_API: http://localhost:3002
-      VITE_INVENTORY_API: http://localhost:3004
+      VITE_API_BASE: http://localhost:8080
 
 volumes:
   catalog_pgdata:

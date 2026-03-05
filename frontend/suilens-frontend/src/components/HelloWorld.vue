@@ -122,9 +122,10 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 
-const catalogApi = import.meta.env.VITE_CATALOG_API || 'http://localhost:3001';
-const orderApi = import.meta.env.VITE_ORDER_API || 'http://localhost:3002';
-const inventoryApi = import.meta.env.VITE_INVENTORY_API || 'http://localhost:3004';
+const apiBase = import.meta.env.VITE_API_BASE || '';
+const catalogApi = apiBase ? `${apiBase}/api/catalog` : (import.meta.env.VITE_CATALOG_API || 'http://localhost:3001');
+const orderApi = apiBase ? `${apiBase}/api/orders` : (import.meta.env.VITE_ORDER_API || 'http://localhost:3002');
+const inventoryApi = apiBase ? `${apiBase}/api/inventory` : (import.meta.env.VITE_INVENTORY_API || 'http://localhost:3004');
 
 const lenses = ref([]);
 const inventoryByLensId = ref({});
@@ -192,7 +193,7 @@ const fetchJson = async (url) => {
 };
 
 const loadInventory = async (lensId) => {
-  const data = await fetchJson(`${inventoryApi}/api/inventory/lenses/${lensId}`);
+  const data = await fetchJson(`${inventoryApi}/lenses/${lensId}`);
   inventoryByLensId.value = {
     ...inventoryByLensId.value,
     [lensId]: data,
@@ -200,7 +201,7 @@ const loadInventory = async (lensId) => {
 };
 
 const loadLenses = async () => {
-  const data = await fetchJson(`${catalogApi}/api/lenses`);
+  const data = await fetchJson(`${catalogApi}/lenses`);
   lenses.value = data;
   await Promise.all(data.map((lens) => loadInventory(lens.id)));
   if (!selectedLensId.value && data[0]) {
@@ -223,7 +224,7 @@ const submitOrder = async () => {
       endDate: form.value.endDate,
     };
 
-    const response = await fetch(`${orderApi}/api/orders`, {
+    const response = await fetch(`${orderApi}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
